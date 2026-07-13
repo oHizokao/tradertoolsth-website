@@ -139,19 +139,35 @@ function computeVisualHit(sig, candles) {
     if (c.time && c.time < afterTime) continue; // ใช้เฉพาะ candles หลัง signal_time
     const h = c.high, l = c.low;
 
-    // TP hits
+    // ถ้า SL hit แล้วจากแท่งก่อนหน้า → หยุดนับ TP ใหม่ทันที
+    if (res.sl === 1) break;
+
     if (isBuy) {
-      if (!res.tp1 && sig.tp1 > 0 && h >= sig.tp1) { res.tp1 = 1; res.visualOnly.tp1 = !bk.tp1; }
-      if (!res.tp2 && sig.tp2 > 0 && h >= sig.tp2) { res.tp2 = 1; res.visualOnly.tp2 = !bk.tp2; }
-      if (!res.tp3 && sig.tp3 > 0 && h >= sig.tp3) { res.tp3 = 1; res.visualOnly.tp3 = !bk.tp3; }
-      if (!res.tp4 && sig.tp4 > 0 && h >= sig.tp4) { res.tp4 = 1; res.visualOnly.tp4 = !bk.tp4; }
-      if (!res.sl  && sig.sl  > 0 && l <= sig.sl)  { res.sl  = 1; res.visualOnly.sl  = true; }
+      // ตรวจ SL ก่อนว่าแท่งนี้โดน SL ไหม
+      const slThisCandle = sig.sl > 0 && l <= sig.sl;
+
+      if (slThisCandle) {
+        // แท่งนี้โดน SL → TP ที่ยังไม่โดนบนแท่งนี้ไม่นับ (ambiguous tick order)
+        // แต่ TP ที่โดนจากแท่งก่อนหน้าแล้ว ยังคงอยู่
+        res.sl = 1; res.visualOnly.sl = true;
+      } else {
+        // แท่งนี้ไม่โดน SL → นับ TP ปกติ
+        if (!res.tp1 && sig.tp1 > 0 && h >= sig.tp1) { res.tp1 = 1; res.visualOnly.tp1 = !bk.tp1; }
+        if (!res.tp2 && sig.tp2 > 0 && h >= sig.tp2) { res.tp2 = 1; res.visualOnly.tp2 = !bk.tp2; }
+        if (!res.tp3 && sig.tp3 > 0 && h >= sig.tp3) { res.tp3 = 1; res.visualOnly.tp3 = !bk.tp3; }
+        if (!res.tp4 && sig.tp4 > 0 && h >= sig.tp4) { res.tp4 = 1; res.visualOnly.tp4 = !bk.tp4; }
+      }
     } else {
-      if (!res.tp1 && sig.tp1 > 0 && l <= sig.tp1) { res.tp1 = 1; res.visualOnly.tp1 = !bk.tp1; }
-      if (!res.tp2 && sig.tp2 > 0 && l <= sig.tp2) { res.tp2 = 1; res.visualOnly.tp2 = !bk.tp2; }
-      if (!res.tp3 && sig.tp3 > 0 && l <= sig.tp3) { res.tp3 = 1; res.visualOnly.tp3 = !bk.tp3; }
-      if (!res.tp4 && sig.tp4 > 0 && l <= sig.tp4) { res.tp4 = 1; res.visualOnly.tp4 = !bk.tp4; }
-      if (!res.sl  && sig.sl  > 0 && h >= sig.sl)  { res.sl  = 1; res.visualOnly.sl  = true; }
+      const slThisCandle = sig.sl > 0 && h >= sig.sl;
+
+      if (slThisCandle) {
+        res.sl = 1; res.visualOnly.sl = true;
+      } else {
+        if (!res.tp1 && sig.tp1 > 0 && l <= sig.tp1) { res.tp1 = 1; res.visualOnly.tp1 = !bk.tp1; }
+        if (!res.tp2 && sig.tp2 > 0 && l <= sig.tp2) { res.tp2 = 1; res.visualOnly.tp2 = !bk.tp2; }
+        if (!res.tp3 && sig.tp3 > 0 && l <= sig.tp3) { res.tp3 = 1; res.visualOnly.tp3 = !bk.tp3; }
+        if (!res.tp4 && sig.tp4 > 0 && l <= sig.tp4) { res.tp4 = 1; res.visualOnly.tp4 = !bk.tp4; }
+      }
     }
   }
   return res;
