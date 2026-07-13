@@ -114,6 +114,51 @@ function getActiveCandles() {
 }
 
 // ============================================================
+// VISUAL HIT DETECTION (frontend-only, ไม่เขียน DB)
+// คำนวณจาก candles ที่เว็บเห็น หลัง signal_time
+// backend tp_status เป็น "ground truth" — visual เป็น fallback เมื่อ backend = 0
+// คืน { tp1, tp2, tp3, tp4, sl } โดย 1 = hit (backend หรือ visual), 0 = ยังไม่ hit
+// ============================================================
+function computeVisualHit(sig, candles) {
+  const bk = sig.tp_status || {};
+  // เริ่มจาก backend status
+  const res = {
+    tp1: bk.tp1 === 1 ? 1 : 0,
+    tp2: bk.tp2 === 1 ? 1 : 0,
+    tp3: bk.tp3 === 1 ? 1 : 0,
+    tp4: bk.tp4 === 1 ? 1 : 0,
+    sl:  0,   // backend ไม่มี sl_status field — ใช้ visual เท่านั้น
+    visualOnly: { tp1: false, tp2: false, tp3: false, tp4: false, sl: false },
+  };
+  if (!candles || candles.length === 0) return res;
+
+  const isBuy = sig.direction === "BUY";
+  const afterTime = sig.signal_time || 0;
+
+  for (const c of candles) {
+    if (c.time && c.time < afterTime) continue; // ใช้เฉพาะ candles หลัง signal_time
+    const h = c.high, l = c.low;
+
+    // TP hits
+    if (isBuy) {
+      if (!res.tp1 && sig.tp1 > 0 && h >= sig.tp1) { res.tp1 = 1; res.visualOnly.tp1 = !bk.tp1; }
+      if (!res.tp2 && sig.tp2 > 0 && h >= sig.tp2) { res.tp2 = 1; res.visualOnly.tp2 = !bk.tp2; }
+      if (!res.tp3 && sig.tp3 > 0 && h >= sig.tp3) { res.tp3 = 1; res.visualOnly.tp3 = !bk.tp3; }
+      if (!res.tp4 && sig.tp4 > 0 && h >= sig.tp4) { res.tp4 = 1; res.visualOnly.tp4 = !bk.tp4; }
+      if (!res.sl  && sig.sl  > 0 && l <= sig.sl)  { res.sl  = 1; res.visualOnly.sl  = true; }
+    } else {
+      if (!res.tp1 && sig.tp1 > 0 && l <= sig.tp1) { res.tp1 = 1; res.visualOnly.tp1 = !bk.tp1; }
+      if (!res.tp2 && sig.tp2 > 0 && l <= sig.tp2) { res.tp2 = 1; res.visualOnly.tp2 = !bk.tp2; }
+      if (!res.tp3 && sig.tp3 > 0 && l <= sig.tp3) { res.tp3 = 1; res.visualOnly.tp3 = !bk.tp3; }
+      if (!res.tp4 && sig.tp4 > 0 && l <= sig.tp4) { res.tp4 = 1; res.visualOnly.tp4 = !bk.tp4; }
+      if (!res.sl  && sig.sl  > 0 && h >= sig.sl)  { res.sl  = 1; res.visualOnly.sl  = true; }
+    }
+  }
+  return res;
+}
+
+
+// ============================================================
 // SIGNAL SELECTION (overlay + panel)
 // ============================================================
 // ตรวจว่า signal ตรง context ปัจจุบัน (symbol + timeframe) หรือไม่
@@ -394,24 +439,25 @@ function drawChart(ctx, width, height) {
     const drawLevels = isActive || isLatest;
 
     if (drawLevels) {
-      const tpS = sig.tp_status || {};
+      // ใช้ visual hit: backend เป็น ground truth, visual เป็น fallback
+      const vHit = computeVisualHit(sig, candles);
       const tpLevels = [
-        { n: "TP1", p: sig.tp1, s: tpS.tp1, objKey: "level_tp1" },
-        { n: "TP2", p: sig.tp2, s: tpS.tp2, objKey: "level_tp2" },
-        { n: "TP3", p: sig.tp3, s: tpS.tp3, objKey: "level_tp3" },
-        { n: "TP4", p: sig.tp4, s: tpS.tp4, objKey: "level_tp4" },
+        { n: "TP1", p: sig.tp1, s: vHit.tp1, vo: vHit.visualOnly.tp1, objKey: "level_tp1" },
+        { n: "TP2", p: sig.tp2, s: vHit.tp2, vo: vHit.visualOnly.tp2, objKey: "level_tp2" },
+        { n: "TP3", p: sig.tp3, s: vHit.tp3, vo: vHit.visualOnly.tp3, objKey: "level_tp3" },
+        { n: "TP4", p: sig.tp4, s: vHit.tp4, vo: vHit.visualOnly.tp4, objKey: "level_tp4" },
       ];
 
       for (const tp of tpLevels) {
         if (tp.p <= 0) continue;
-        // visibility check จาก EA: ถ้ามี objects แต่ level_tp* = null → ไม่วาด
         if (objs && objs[tp.objKey] === null) continue;
         const isHit = tp.s === 1;
         const isMiss = tp.s === -1;
-        const label = isHit ? `${tp.n} ✓ ${fmtPrice(tp.p)}` : `${tp.n} ${fmtPrice(tp.p)}`;
+        // visual-only hit แสดง ◦ (open circle) แทน ✓ เพื่อแยกจาก backend confirmed
+        const hitMark = isHit ? (tp.vo ? "◦" : "✓") : "";
+        const label = isHit ? `${tp.n} ${hitMark} ${fmtPrice(tp.p)}` : `${tp.n} ${fmtPrice(tp.p)}`;
         const color = isHit ? "#25d695" : isMiss ? "#4a5568" : "#25d695";
         const alpha = isHit ? 0.9 : isMiss ? 0.3 : 0.45;
-        // ใช้ drawLevelLine แต่ label ต้องรวม price
         const tpY = clampY(tp.p);
         ctx.strokeStyle = color; ctx.globalAlpha = alpha;
         ctx.lineWidth = isHit ? 1.5 : 1;
@@ -441,12 +487,13 @@ function drawChart(ctx, width, height) {
         ctx.fillText(entryLabel, lineEndX - elw + 5, entryY + 1);
       }
 
-      // SL line (red dashed)
+      // SL line (red dashed) — แสดง HIT ⚠ ถ้า visual sl hit
       if (sig.sl > 0 && (!objs || objs.level_sl !== null)) {
-        const slLabel = `SL ${fmtPrice(sig.sl)}`;
+        const slHit = vHit.sl === 1;
+        const slLabel = slHit ? `SL ⚠ ${fmtPrice(sig.sl)}` : `SL ${fmtPrice(sig.sl)}`;
         const slY = clampY(sig.sl);
-        ctx.strokeStyle = "#ff6470"; ctx.globalAlpha = 0.8; ctx.lineWidth = 1.5;
-        ctx.setLineDash([5, 4]);
+        ctx.strokeStyle = "#ff6470"; ctx.globalAlpha = slHit ? 1.0 : 0.8; ctx.lineWidth = slHit ? 2 : 1.5;
+        ctx.setLineDash(slHit ? [] : [5, 4]);
         ctx.beginPath(); ctx.moveTo(startX, slY); ctx.lineTo(lineEndX, slY); ctx.stroke();
         ctx.setLineDash([]); ctx.globalAlpha = 1; ctx.lineWidth = 1;
         ctx.font = "600 8px IBM Plex Mono, monospace";
@@ -902,8 +949,11 @@ function renderSignal() {
   const isClosed = sig.kind === "CLOSED" || sig.kind === "OLD";
   const isWin = sig.result === "WIN";
   const isLoss = sig.result === "LOSS";
-  const tpStatus = sig.tp_status || {};
-  const hitCount = [tpStatus.tp1, tpStatus.tp2, tpStatus.tp3, tpStatus.tp4].filter(s => s === 1).length;
+  // visual hit: merge backend + candle detection
+  const vHit = computeVisualHit(sig, getActiveCandles());
+  const tpStatus = vHit; // compat alias
+  const hitCount = [vHit.tp1, vHit.tp2, vHit.tp3, vHit.tp4].filter(v => v === 1).length;
+  const slVisual = vHit.sl === 1;
 
   // ---- KIND BADGE ----
   if (isClosed && isWin) {
@@ -947,30 +997,31 @@ function renderSignal() {
   }
 
   // ---- TP LEVELS (CLEAN) ----
-  const rows = [
-    { n: "TP1", p: sig.tp1, s: tpStatus.tp1 },
-    { n: "TP2", p: sig.tp2, s: tpStatus.tp2 },
-    { n: "TP3", p: sig.tp3, s: tpStatus.tp3 },
-    { n: "TP4", p: sig.tp4, s: tpStatus.tp4 },
+  const tpRows = [
+    { n: "TP1", key: "tp1", p: sig.tp1, s: tpStatus.tp1 },
+    { n: "TP2", key: "tp2", p: sig.tp2, s: tpStatus.tp2 },
+    { n: "TP3", key: "tp3", p: sig.tp3, s: tpStatus.tp3 },
+    { n: "TP4", key: "tp4", p: sig.tp4, s: tpStatus.tp4 },
   ];
   let nextFound = false;
-  const levelsHtml = rows.map(r => {
+  const levelsHtml = tpRows.map(r => {
     const hit = r.s === 1;
     const missed = r.s === -1;
-    const isNext = !hit && !missed && r.s === 0 && !nextFound && !isClosed;
+    const isVisualOnly = hit && vHit.visualOnly[r.key];
+    const isNext = !hit && !missed && r.s === 0 && !nextFound && !isClosed && !slVisual;
     if (isNext) nextFound = true;
-
     let cls = "level-row";
     let badge = "";
     if (hit) {
       cls += " hit";
-      badge = `<small class="tp-badge hit">✓ HIT</small>`;
+      // visual-only = outline badge; backend confirmed = filled badge
+      badge = isVisualOnly
+        ? `<small class="tp-badge hit" title="Visual HIT (candles)">◦ HIT</small>`
+        : `<small class="tp-badge hit">✓ HIT</small>`;
     } else if (missed) {
-      cls += " stop";
-      badge = `<small class="tp-badge miss">✗</small>`;
+      cls += " stop"; badge = `<small class="tp-badge miss">✗</small>`;
     } else if (isNext) {
-      cls += " next";
-      badge = `<small class="tp-badge next">→ เป้าถัดไป</small>`;
+      cls += " next"; badge = `<small class="tp-badge next">→ เป้าถัดไป</small>`;
     } else {
       const diff = (r.p - sig.entry) * (isBuy ? 1 : -1);
       badge = `<small>${diff >= 0 ? "+" : ""}${diff.toFixed(1)}</small>`;
@@ -978,16 +1029,18 @@ function renderSignal() {
     return `<div class="${cls}"><span>${r.n}</span><strong>${fmtPrice(r.p)}</strong>${badge}</div>`;
   }).join("");
 
-  // SL row
+  // SL row — แสดง HIT ถ้า visual sl hit
   const slDiff = (sig.entry - sig.sl) * (isBuy ? 1 : -1);
-  const slHtml = `<div class="level-row stop"><span>SL</span><strong>${fmtPrice(sig.sl)}</strong><small>-${Math.abs(slDiff).toFixed(1)}</small></div>`;
+  const slRowCls = slVisual ? "level-row stop hit" : "level-row stop";
+  const slBadge = slVisual ? `<small class="tp-badge hit">⚠ HIT</small>` : `<small>-${Math.abs(slDiff).toFixed(1)}</small>`;
+  const slHtml = `<div class="${slRowCls}"><span>SL</span><strong>${fmtPrice(sig.sl)}</strong>${slBadge}</div>`;
   $("signal-levels").innerHTML = levelsHtml + slHtml;
 
   // ---- PROGRESS ----
   $("signal-progress").textContent = `${hitCount} / 4 TP`;
   $("signal-progress-bar").style.width = `${(hitCount / 4) * 100}%`;
 
-  // ---- RESULT BANNER ----
+  // ---- RESULT BANNER ---- (visual SL hit แสดง banner แม้ backend ยังไม่ส่ง)
   if (isClosed && (isWin || isLoss)) {
     resultBanner.className = `signal-result-banner visible ${isWin ? "win" : "loss"}`;
     $("result-icon").textContent = isWin ? "✅" : "❌";
