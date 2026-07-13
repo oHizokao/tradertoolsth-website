@@ -978,6 +978,7 @@ function renderSignal() {
   $("signal-symbol").textContent = sig.symbol;
   const ageTxt = sig.age_seconds != null ? ` · ${fmtAge(sig.age_seconds)}ที่แล้ว` : "";
   $("signal-time").textContent = `${fmtTimeShort(sig.signal_time)}${ageTxt}`;
+  $("signal-entry").textContent = sig.entry > 0 ? fmtPrice(sig.entry) : DASH;
 
   // status pill
   const pill = $("signal-status-pill");
