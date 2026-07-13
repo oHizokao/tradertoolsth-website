@@ -411,3 +411,78 @@ npm run seed:test           # terminal 2 (ส่ง payload ครบ)
 - Debug log: มี candle_first/last_time + inRange ต่อ signal ✅
 - Legend: ไม่บอก Risk/Reward ถ้าไม่มี zones จริง ✅
 
+## GitHub sync 2026-07-13
+
+- ดึงสถานะล่าสุดจาก `origin/main` สำเร็จที่ commit `466a8f6` (`update: EA compiled binary Trend_Follow_M5M1.ex5`)
+- GitHub มีการ rewrite ประวัติ main จึงเก็บประวัติ local เดิมไว้ที่ branch `local-backup-20260713-192623`
+- เก็บไฟล์ `Trend_Follow_M5M1.ex5` ที่เคยแก้ในเครื่องไว้ใน stash `pre-github-sync-20260713-192623`
+- เปลี่ยน local `main` ให้ติดตาม `origin/main` ชุดปัจจุบันแล้ว โดยไม่ลบ backup เดิม
+## Diagnosis: XAUUSDS M1 signal 790011-M1-1783950060 (2026-07-13)
+
+- ผู้ใช้ถามว่าทำไม SELL entry 4063.84 ถูกแสดงเป็น SL HIT ทั้งที่กราฟลงถึง TP ก่อน
+- API ยืนยันว่า status มาจาก EA/backend จริง: SL 4068.49, result LOSS, TP1-TP4 = -1 ไม่ใช่ frontend visual fallback
+- MT5 OHLC จริง: signal bar 13:41 ลงถึง TP4; แท่ง 13:42 ก็ลงถึง TP4 อีกครั้ง; SL 4068.49 ถูกแตะภายหลังที่แท่ง 14:35
+- ตาม source ปัจจุบัน แท่ง 13:42 ควรล็อก TP1-TP4 เป็น hit และไม่ควรเปลี่ยนเป็น SL ภายหลัง จึงสรุปว่า record นี้ผิด
+- หลักฐาน runtime: terminal64 เริ่ม 19:25:48 แต่ `.ex5` ล่าสุดถูกวาง 19:26:23 จึงยังรัน EA binary เก่าใน memory
+- backend `upsertSignal` ไม่ update status/result/tp_status เมื่อ bulk sync ชน id เดิม ทำให้ค่า LOSS เดิมไม่ถูกแก้โดย bulk sync รุ่นใหม่
+- รอบนี้เป็น diagnosis only ยังไม่ได้แก้ EA/backend หรือข้อมูลในฐานข้อมูล
+## Fix stale bulk-sync results (2026-07-13)
+
+- หลัง reattach EA พบ signal ใหม่ `790011-M1-1783957440` ทำงานถูกและปิด TP1 WIN แต่ record เก่า `790011-M1-1783950060` ยังค้าง SL HIT
+- สาเหตุยืนยันแล้ว: `/api/signal/bulk` ส่ง status/result/tp_status ใหม่ แต่ `upsertSignal ON CONFLICT` ไม่ update คอลัมน์เหล่านี้
+- แก้ `server/db.js` ให้ bulk upsert เขียนทับ `status`, `result`, `tp1_status` ถึง `tp4_status`
+- Route `/api/signal` ยังปลอดภัย เพราะ ingest route copy status/result เดิมใส่ payload ก่อนเรียก upsert
+- ไม่ได้แก้ EA หรือ frontend ในรอบนี้
+- Verification ผ่านหลัง server restart + EA bulk sync: `790011-M1-1783950060` เปลี่ยนจาก `SL HIT/LOSS (-1,-1,-1,-1)` เป็น `TP4 HIT/WIN (1,1,1,1)` อัตโนมัติ
+## Remove clickable timeframe controls (2026-07-13)
+
+- ลบปุ่ม M1/M5 ออกจาก chart toolbar ตามคำขอผู้ใช้
+- ผู้ใช้เปลี่ยน timeframe จากหน้าเว็บไม่ได้แล้ว จึงไม่สามารถเผลอเลือก context ที่ไม่ตรงกับ EA
+- คง `timeframe-label` ไว้เป็นข้อความ read-only แสดง timeframe ของ context ที่กราฟกำลังวาด
+- ลบ frontend event listener และ DOM query ของ `[data-timeframe]`
+- ไม่แก้ EA, backend, Zone toggle, Past toggle หรือ symbol selector
+- Browser QC ผ่าน: `timeframeButtons=0`, label=`1 นาที`, context=`XAUUSDS`, signal badge=`ACTIVE`, canvas วาดปกติ และ console ไม่มี error
+## UI signal lifecycle through TP4 (2026-07-13)
+
+- เปลี่ยน Latest Signal ให้ติดตามสัญญาณใหม่สุดต่อหลัง TP1/TP2/TP3 แม้ backend เดิมส่ง result=WIN/CLOSED
+- UI ถือว่าสัญญาณ terminal เฉพาะ TP4 hit, SL/result LOSS, หรือมี tp_status=-1
+- เมื่อมีสัญญาณใหม่ สัญญาณใหม่ขึ้น Latest ทันที; ตัวเก่าที่ยัง non-terminal แสดงใน history เป็น `REPLACED` พร้อม TP ล่าสุดที่ทำได้
+- Past OFF ใช้ lifecycle signal เดียวกับ Latest panel ไม่ fallback ไปสัญญาณเก่ากว่าตัวใหม่สุด
+- ไม่เปลี่ยนสถิติหรือข้อมูล result ในฐานข้อมูล; เป็น presentation/tracking lifecycle ของ UI
+- QC ผ่าน: TP2=ongoing, TP4=terminal, SL ก่อน TP=terminal, SL หลัง TP2=terminal; Browser แสดง XAUUSDS M1 + ACTIVE, history 50 rows, canvas ปกติ และ console ไม่มี error
+
+## Lock website timeframe to latest EA signal context (2026-07-13)
+
+- ปัญหาเดิม: backend เลือก market snapshot ที่มาถึงล่าสุดเป็น context หลัก ทำให้ EA ของ XAUUSDS M1 และ M5 ที่ส่งพร้อมกันแย่งกันและหน้าเว็บสลับ Timeframe ได้
+- แก้ `server/routes/public.js` ให้เลือก symbol+timeframe ของสัญญาณจริงล่าสุดที่ยังมี market feed สดเป็น context หลัก
+- ถ้ายังไม่เคยมีสัญญาณ จึง fallback ไป market snapshot ล่าสุด; ถ้า feed หยุดทั้งหมด ให้คง context ของสัญญาณล่าสุดไว้
+- ไม่ได้แก้ EA ในรอบนี้ และลูกค้ายังไม่มีปุ่มเปลี่ยน Timeframe บน UI
+- Verification: `/api/instances` ต่อเนื่อง 8 รอบคง `XAUUSDS M1` แม้มี XAUUSDS M5 ส่งอยู่ด้วย
+- Browser QC: แสดง `XAUUSDS`, `1 นาที`, timeframe controls = 0, canvas 904x515, Zone default hidden ใช้ไอคอน eye-off และ console ไม่มี warning/error
+- ข้อสังเกตปลายรอบ: feed เปลี่ยนเป็น STALE เพราะ EA หยุดส่งข้อมูลสดช่วงตรวจภาพ แต่ context ยังคง M1 และไม่ได้สลับไป M5
+
+## Fix false SL labels in signal history (2026-07-13)
+
+- ผู้ใช้พบ record ราคา `4,059.74` แสดง `SL HIT · TP2` ทั้งที่ API ระบุ `status=TP2 HIT`, `result=WIN`, TP1/TP2=1 และ TP3/TP4=-1
+- สาเหตุ: UI เดิมเหมารวมค่า TP status `-1` ว่าเป็นหลักฐานว่า SL ถูกแตะ ทั้งที่ค่านี้อาจหมายถึงเป้าหมายนั้นไม่สำเร็จก่อนสัญญาณใหม่เข้ามาแทน
+- แก้ `isTrackingTerminal()` ใน `app.js` ให้ถือว่า SL เกิดเฉพาะเมื่อ `result=LOSS` หรือ `status` ระบุ `SL HIT`; TP4=1 ยังคงเป็น terminal แบบชนะ
+- ผลลัพธ์: record ดังกล่าวแสดง `REPLACED · TP2`; record TP3 ที่ไม่ใช่ LOSS แสดง `REPLACED · TP3`; record LOSS จริงยังแสดง `SL HIT`
+- Browser QC ที่ context `XAUUSDS 1 นาที` ผ่าน: ลำดับล่าสุดเป็น `ACTIVE · TP3`, `REPLACED · TP1`, `TP4 ✓`, `REPLACED · TP2`, `SL HIT`; canvas ปกติและ console ไม่มี warning/error
+
+## Fix stale EA feed after server restart (2026-07-13)
+
+- ผู้ใช้พบ MT5 เดินต่อแต่ UI ค้างประมาณ 11-12 นาที โดยหน้าเว็บขึ้น `EA FEED STALE` และราคาเว็บค้างที่ `4,062.02`
+- ตรวจ MT5 Expert log พบ EA ยัง POST ทุกประมาณ 3 วินาที แต่ backend ตอบ `HTTP 503` พร้อม `server API_KEY not configured`
+- สาเหตุ: `server/server.js` ใช้ `dotenv.config()` แบบอิง current working directory; เมื่อเริ่มด้วย `node server/server.js` จาก project root จึงไม่โหลด `server/.env`
+- แก้ให้โหลด `.env` ด้วย absolute path จาก `__dirname` ทำให้การเริ่ม server จากโฟลเดอร์ใดก็ได้ใช้ config ชุดเดียวกัน
+- รีสตาร์ต server แล้ว feed กลับเป็น LIVE ทันที; API market age อยู่ประมาณ 1 วินาที และ XAUUSDS M1 bid กลับมาตรงกับช่วงราคา MT5
+- Verification ต่อเนื่อง 5 รอบทุก 3 วินาที: feed คง LIVE, market age ประมาณ 1 วินาที และ bid เปลี่ยนตามตลาด
+- Browser QC: `EA FEED LIVE`, `1 นาที`, data age 2-3 วินาที, bid เปลี่ยนจาก `4,058.87` เป็น `4,058.09`, canvas ปกติ และ console ไม่มี warning/error
+
+## Simplify replaced signal history to achieved TP (2026-07-13)
+
+- ผู้ใช้ขอไม่แสดงคำว่า `REPLACED` ในประวัติสัญญาณ
+- แก้ UI ให้สัญญาณเก่าที่ไม่จบด้วย SL/TP4 สรุปเฉพาะ TP สูงสุดที่ทำได้ เช่น `TP1 ✓`, `TP2 ✓`, `TP3 ✓` และใช้สีเขียว
+- ถ้าสัญญาณถูกแทนก่อนถึง TP ใด จะแสดง `0 TP` แบบกลางแทนการอ้างว่าแพ้หรือโดน SL
+- `SL HIT` จริงยังคงสีแดง และ `TP4 ✓` ยังคงเป็นผลสำเร็จสีเขียว
+- Browser QC ผ่าน: ไม่มีข้อความ `REPLACED`; แถวราคา `4,059.74` แสดง `TP2 ✓`, ราคา `4,073.02` แสดง `TP3 ✓`, feed LIVE และ console ไม่มี warning/error

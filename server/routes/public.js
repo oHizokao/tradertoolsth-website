@@ -138,17 +138,33 @@ router.get("/instances", (req, res) => {
   // primary = market snapshot live ล่าสุด (preferred) หรือ signal latest ถ้าไม่มี market
   const allMarkets = db.prepare(`SELECT * FROM market_snapshots ORDER BY updated_at DESC`).all();
   const liveMarket = allMarkets.find(m => (now - m.updated_at) <= STALE_SECONDS) || allMarkets[0] || null;
+  // Bind the website to the timeframe that produced the newest real signal.
+  // This prevents simultaneous M1/M5 price heartbeats from flipping the UI context.
+  const liveContexts = new Set(
+    allMarkets
+      .filter(m => (now - m.updated_at) <= STALE_SECONDS)
+      .map(m => `${m.symbol}:${m.timeframe || ""}`)
+  );
+  const latestSignalContext = db.prepare(
+    `SELECT * FROM signals ORDER BY signal_time DESC LIMIT 50`
+  ).all().find(s =>
+    signalKind(s) !== "TEST" &&
+    liveContexts.has(`${s.symbol}:${s.timeframe || ""}`)
+  );
 
   let primarySymbol = null;
   let primaryTf = null;
 
-  if (liveMarket) {
+  if (latestSignalContext) {
+    primarySymbol = latestSignalContext.symbol;
+    primaryTf     = latestSignalContext.timeframe || "";
+  } else if (liveMarket) {
     primarySymbol = liveMarket.symbol;
     primaryTf     = liveMarket.timeframe || "";
   } else {
     // fallback: signal ล่าสุด (NON-TEST)
     const latestSig = db.prepare(
-      `SELECT * FROM signals ORDER BY updated_at DESC LIMIT 20`
+      `SELECT * FROM signals ORDER BY signal_time DESC LIMIT 20`
     ).all().find(s => signalKind(s) !== "TEST");
     if (latestSig) {
       primarySymbol = latestSig.symbol;

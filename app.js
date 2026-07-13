@@ -18,7 +18,6 @@ const $ = (id) => document.getElementById(id);
 const canvas = $("price-chart");
 const chartWrap = $("chart-wrap");
 const tooltip = $("chart-tooltip");
-const timeframeButtons = document.querySelectorAll("[data-timeframe]");
 const symbolSelect = $("symbol-select");
 
 // ---- state ----
@@ -33,6 +32,7 @@ let userPickedSymbol = false; // true = ผู้ใช้เลือก dropdo
 
 // ---- chart overlay state ----
 let showPastSignals = false;   // default OFF — กราฟสะอาด เปิด toggle ถ้าต้องการ historical
+let showZones = false;         // default OFF — Zone ซ่อนเป็น default (toggle บน toolbar)
 let maxPastSignals  = 5;       // จำนวน historical signal สูงสุดที่จะวาดบนกราฟ
 let chartMeta = null;          // visual config จาก EA (/api/chart_meta) — render ตาม 1:1
 
@@ -188,14 +188,39 @@ function signalMatchesContext(s) {
   return true;
 }
 
+function signalTpStates(s) {
+  const tp = (s && s.tp_status) || {};
+  return [tp.tp1 || 0, tp.tp2 || 0, tp.tp3 || 0, tp.tp4 || 0];
+}
+
+// UI lifecycle: track through TP1-TP3. Only TP4 or an explicit SL result is terminal.
+// A negative TP state can mean that target was not reached before replacement;
+// it must not be treated as proof that price hit SL.
+function isTrackingTerminal(s) {
+  const states = signalTpStates(s);
+  const status = String((s && s.status) || "").toUpperCase();
+  return !!s && (s.result === "LOSS" || status.includes("SL HIT") || states[3] === 1);
+}
+
+function newestContextSignal() {
+  const rows = ((feed.history && feed.history.signals) || [])
+    .filter(signalMatchesContext)
+    .sort((a, b) => (b.signal_time || 0) - (a.signal_time || 0));
+  return rows[0] || null;
+}
+
 // สัญญาณล่าสุดที่จะแสดงใน panel = latest ACTIVE ของ context
 // ถ้า latest ของ context เป็น OLD/CLOSED → คืน null (panel แสดง "No active signal")
 function currentDisplaySignal() {
-  if (!feed.latest) return null;
-  const s = feed.latest.signal;
-  if (!signalMatchesContext(s)) return null;
-  if (s.kind !== "ACTIVE") return null; // panel ใช้ ACTIVE เท่านั้น
-  return s;
+  const apiActive = feed.latest && feed.latest.signal;
+  const historyNewest = newestContextSignal();
+  const activeMatch = signalMatchesContext(apiActive) ? apiActive : null;
+  const s = activeMatch && (!historyNewest || (activeMatch.signal_time || 0) >= (historyNewest.signal_time || 0))
+    ? activeMatch
+    : historyNewest;
+  if (!s || s.kind === "OLD" || isTrackingTerminal(s)) return null;
+  // Backend may call TP1-TP3 WIN/CLOSED; UI keeps tracking until TP4/SL/new signal.
+  return { ...s, kind: "ACTIVE", result: "OPEN" };
 }
 
 // รายการ signal ที่จะวาดบนกราฟ (overlay) — current overlay จาก /api/latest เท่านั้น
@@ -206,12 +231,8 @@ function currentDisplaySignal() {
 // เรียงจากเก่า → ใหม่ เพื่อให้ latest อยู่บนสุด
 function getDisplaySignals() {
   if (!showPastSignals) {
-    // Past OFF: ใช้ latest active signal เท่านั้น — ห้าม fallback history
-    if (!feed.latest || !feed.latest.signal) return [];
-    const s = feed.latest.signal;
-    if (!signalMatchesContext(s)) return [];
-    if (s.kind !== "ACTIVE") return []; // latest จาก API active_only=1 ต้องเป็น ACTIVE เท่านั้น
-    return [s];
+    const s = currentDisplaySignal();
+    return s ? [s] : [];
   }
   // Past ON: historical overlay จาก /api/history
   if (!feed.history || !Array.isArray(feed.history.signals)) return [];
@@ -303,7 +324,9 @@ function drawChart(ctx, width, height) {
   // === PASS 0: DR ZONES (resistance/support) จาก /api/zones เท่านั้น — ห้ามวาดถ้าไม่มี payload ===
   // วาดก่อน candles เพื่อเป็น background layer
   // resistance = สีแดงโปร่งใส, support = สีเขียวโปร่งใส
-  if (liveZones && liveZones.length > 0) {
+  // เคารพ toggle ของผู้ใช้: ถ้า showZones=false ให้ข้ามการวาด Zone ทั้งหมด
+  // (candles, price line, signal arrows, Entry/TP/SL ยังวาดปกติ — ไม่เกี่ยวกับค่านี้)
+  if (showZones && liveZones && liveZones.length > 0) {
     const candleFirstTime = candles[0] ? candles[0].time : null;
     const candleLastTime  = candles[candles.length - 1] ? candles[candles.length - 1].time : null;
 
@@ -696,13 +719,6 @@ canvas.addEventListener("mousemove", event => {
 });
 canvas.addEventListener("mouseleave", () => { tooltip.hidden = true; });
 
-timeframeButtons.forEach(button => button.addEventListener("click", () => {
-  timeframeButtons.forEach(b => b.classList.toggle("active", b === button));
-  timeframe = button.dataset.timeframe;
-  $("timeframe-label").textContent = timeframe === "M5" ? "5 นาที" : "1 นาที";
-  selectedSymbol = activeSymbol;
-  pollNow();
-}));
 $("reset-chart").addEventListener("click", () => fitCanvas());
 $("expand-chart").addEventListener("click", () => {
   if (!document.fullscreenElement) chartWrap.requestFullscreen?.(); else document.exitFullscreen?.();
@@ -717,6 +733,29 @@ $("toggle-past").addEventListener("click", () => {
   btn.classList.toggle("active", showPastSignals);
   // show/hide max-past segmented
   $("max-past-group").hidden = !showPastSignals;
+  fitCanvas();
+});
+
+// --- Zone visibility toggle (DR zones background) ---
+// default OFF — ผู้ใช้กดปุ่ม toggle บน toolbar เพื่อแสดง Zone
+// ใช้ข้อมูลจาก liveZones ที่โหลดจาก /api/zones อยู่แล้ว ไม่เรียก API ซ้ำ
+function updateZonesToggleUI() {
+  const btn = $("toggle-zones");
+  if (!btn) return;
+  btn.classList.toggle("active", showZones);
+  btn.setAttribute("aria-pressed", String(showZones));
+  // swap icon + accessible label/title
+  btn.setAttribute("data-lucide-icon", showZones ? "eye" : "eye-off");
+  const lbl = showZones ? "ซ่อน Zone" : "แสดง Zone";
+  btn.setAttribute("title", lbl);
+  btn.setAttribute("aria-label", lbl);
+  // replace inner icon SVG node — call lucide.createIcons scoped
+  btn.innerHTML = `<i data-lucide="${showZones ? "eye" : "eye-off"}"></i>`;
+  if (window.lucide) { try { window.lucide.createIcons({ root: btn }); } catch (_) { /* ignore */ } }
+}
+$("toggle-zones").addEventListener("click", () => {
+  showZones = !showZones;
+  updateZonesToggleUI();
   fitCanvas();
 });
 
@@ -878,7 +917,6 @@ function renderSymbolSelector() {
   if (!opts.length && activeSymbol) opts.push(activeSymbol);
   const prev = selectedSymbol || activeSymbol;
   symbolSelect.innerHTML = opts.map(s => `<option value="${s}"${s === prev ? " selected" : ""}>${s}</option>`).join("");
-  timeframeButtons.forEach(button => button.classList.toggle("active", button.dataset.timeframe === timeframe));
   $("timeframe-label").textContent = timeframe === "M5" ? "5 นาที" : timeframe === "M1" ? "1 นาที" : timeframe;
 }
 
@@ -1131,15 +1169,8 @@ function renderHistory() {
     return true;
   });
 
-  // เรียง: ACTIVE บนสุด → OLD(เก่า) → CLOSED (WIN/LOSS)
-  const _kindOrder = { ACTIVE: 0, OLD: 1, CLOSED: 2, TEST: 3 };
-  rows.sort((a, b) => {
-    const ka = _kindOrder[a.kind] ?? 9;
-    const kb = _kindOrder[b.kind] ?? 9;
-    if (ka !== kb) return ka - kb;
-    // ใน kind เดียวกัน: เรียงใหม่สุดก่อน
-    return (b.updated_at || b.signal_time || 0) - (a.updated_at || a.signal_time || 0);
-  });
+  rows.sort((a, b) => (b.signal_time || 0) - (a.signal_time || 0));
+  const newestId = rows[0] && rows[0].id;
 
   container.innerHTML = rows.map(r => {
     const isBuy = r.direction === "BUY";
@@ -1148,22 +1179,29 @@ function renderHistory() {
       { s: tpS.tp1 }, { s: tpS.tp2 }, { s: tpS.tp3 }, { s: tpS.tp4 }
     ];
 
-    // badge ตาม kind
+    const states = signalTpStates(r);
+    const lastHit = states.reduce((acc, s, i) => s === 1 ? i + 1 : acc, 0);
+    const terminal = isTrackingTerminal(r);
+    const isNewest = r.id === newestId;
+
+    // UI lifecycle badge: newest non-terminal is ACTIVE; older signals summarize
+    // the highest TP actually achieved without exposing replacement bookkeeping.
     let resultTxt, resultCls;
     if (r.kind === "TEST") {
       resultTxt = "TEST"; resultCls = "test";
     } else if (r.kind === "OLD") {
       resultTxt = "เก่า"; resultCls = "old";
-    } else if (r.kind === "CLOSED") {
-      if (r.result === "WIN") {
-        const last = tpArr.reduce((acc, t, i) => t.s === 1 ? i + 1 : acc, 0);
-        resultTxt = last > 0 ? `TP${last} ✓` : "WIN";
-        resultCls = "win";
-      } else {
-        resultTxt = "SL HIT"; resultCls = "loss";
-      }
+    } else if (!terminal && isNewest) {
+      resultTxt = lastHit > 0 ? `ACTIVE · TP${lastHit}` : "ACTIVE";
+      resultCls = "open";
+    } else if (!terminal) {
+      resultTxt = lastHit > 0 ? `TP${lastHit} ✓` : "0 TP";
+      resultCls = lastHit > 0 ? "win" : "old";
+    } else if (states[3] === 1) {
+      resultTxt = "TP4 ✓"; resultCls = "win";
     } else {
-      resultTxt = "ACTIVE"; resultCls = "open";
+      resultTxt = lastHit > 0 ? `SL HIT · TP${lastHit}` : "SL HIT";
+      resultCls = "loss";
     }
 
     const ago = fmtAgoShort(r.signal_time);
@@ -1176,7 +1214,8 @@ function renderHistory() {
       return `<span class="hrow-dot ${cls}">T${i + 1}</span>`;
     }).join("");
 
-    const rowCls = r.kind === "CLOSED" ? (r.result === "WIN" ? "win" : "loss")
+    const rowCls = terminal ? (states[3] === 1 ? "win" : "loss")
+                  : !isNewest ? "old-row"
                   : r.kind === "OLD" ? "old-row"
                   : r.kind === "TEST" ? "test-row"
                   : "";

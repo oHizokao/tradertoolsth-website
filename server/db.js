@@ -166,6 +166,12 @@ const stmts = {
       tp1=excluded.tp1, tp2=excluded.tp2, tp3=excluded.tp3, tp4=excluded.tp4,
       macd=COALESCE(excluded.macd, signals.macd),
       is_reentry=excluded.is_reentry,
+      status=excluded.status,
+      result=excluded.result,
+      tp1_status=excluded.tp1_status,
+      tp2_status=excluded.tp2_status,
+      tp3_status=excluded.tp3_status,
+      tp4_status=excluded.tp4_status,
       updated_at=excluded.updated_at,
       objects=COALESCE(NULLIF(excluded.objects,''), signals.objects)
   `),

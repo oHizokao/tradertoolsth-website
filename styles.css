@@ -46,6 +46,7 @@ button { color: inherit; }
 .icon-button:hover { background: var(--surface-2); border-color: #3a444f; }
 .icon-button svg { width: 16px; }
 .icon-button.small { width: 30px; height: 30px; }
+.icon-button.active { background: var(--green-soft); border-color: var(--green); color: var(--green); }
 .notification-dot { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: var(--red); top: 7px; right: 7px; }
 main { max-width: 1600px; margin: 0 auto; padding: 0; }
 .market-strip { min-height: 80px; padding: 18px 32px; display: flex; align-items: center; gap: 32px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #0d1014 0%, #0a0d11 100%); }

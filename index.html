@@ -62,10 +62,6 @@
               <span id="chart-feed-label" class="feed-tag">REALTIME</span>
             </div>
             <div class="toolbar-actions">
-              <div class="segmented" role="group" aria-label="Timeframe">
-                <button type="button" data-timeframe="M1">M1</button>
-                <button type="button" class="active" data-timeframe="M5">M5</button>
-              </div>
               <button class="toolbar-toggle" type="button" id="toggle-past" aria-pressed="false" title="แสดงสัญญาณเก่าบนกราฟ">
                 <i data-lucide="history"></i> <span>Past</span>
               </button>
@@ -74,6 +70,7 @@
                 <button type="button" data-max="10">10</button>
                 <button type="button" data-max="20">20</button>
               </div>
+              <button class="icon-button small" type="button" id="toggle-zones" aria-pressed="false" aria-label="แสดง Zone" title="แสดง Zone"><i data-lucide="eye-off"></i></button>
               <button class="icon-button small" type="button" id="reset-chart" aria-label="รีเซ็ตกราฟ" title="รีเซ็ตกราฟ"><i data-lucide="scan"></i></button>
               <button class="icon-button small" type="button" id="expand-chart" aria-label="ขยายกราฟ" title="ขยายกราฟ"><i data-lucide="maximize-2"></i></button>
             </div>
