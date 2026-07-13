@@ -1033,6 +1033,8 @@ function fmtAgoShort(signalTimeSec) {
 function renderHistory() {
   const container = $("history-cards");
   let rows = (feed.history && feed.history.signals) || [];
+  // ซ่อน kind=OLD (ถูกแทนที่) — ไม่มีผล WIN/LOSS ไม่ต้องแสดง
+  rows = rows.filter(r => r.kind !== "OLD");
   if (rows.length === 0) {
     container.innerHTML = `<div class="history-empty">ยังไม่มีประวัติสัญญาณ</div>`;
     return;
