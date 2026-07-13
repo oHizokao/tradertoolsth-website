@@ -1,0 +1,22 @@
+{
+  "name": "tradertoolsth-signal-server",
+  "version": "1.0.0",
+  "description": "Backend รับสัญญาณจาก EA Trend_Follow_M5M1 สำหรับ Signal Terminal ของ Tradertoolsth",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "seed:test": "node scripts/seed-test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2"
+  }
+}

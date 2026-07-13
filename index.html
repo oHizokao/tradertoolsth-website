@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b0e11">
+  <title>Tradertoolsth | Trend Follow Signal Terminal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <a class="brand" href="#" aria-label="Tradertoolsth home">
+        <span class="brand-mark" aria-hidden="true"><i data-lucide="chart-no-axes-combined"></i></span>
+        <span><strong>TRADERTOOLS<span>TH</span></strong><small>TREND FOLLOW TERMINAL</small></span>
+      </a>
+      <div class="topbar-right">
+        <span class="demo-badge" id="demo-badge" hidden><i data-lucide="flask-conical"></i> DEMO DATA</span>
+        <span class="feed-status offline" id="feed-status"><span class="status-dot"></span> <span id="feed-status-text">EA FEED OFFLINE</span></span>
+        <button class="icon-button" type="button" aria-label="แจ้งเตือน" title="แจ้งเตือน"><i data-lucide="bell"></i><span class="notification-dot"></span></button>
+        <button class="icon-button" type="button" aria-label="ตั้งค่า" title="ตั้งค่า"><i data-lucide="settings-2"></i></button>
+      </div>
+    </header>
+
+    <div class="demo-banner" id="demo-banner"><i data-lucide="alert-triangle"></i> <span>ยังไม่มีข้อมูลจาก EA กำลังแสดงตัวอย่างจำลอง (DEMO) — เริ่ม backend และเปิด Website Sync ใน EA เพื่อดูสัญญาณจริง</span></div>
+
+    <main>
+      <!-- ========== MARKET STRIP: ข้อมูลราคาเรียลไทม์ ========== -->
+      <section class="market-strip" aria-label="Market summary">
+        <div class="instrument">
+          <span class="symbol-icon" id="symbol-icon">Au</span>
+          <div>
+            <strong id="market-symbol">—</strong>
+            <small id="market-desc">—</small>
+            <small class="feed-source" id="feed-source" hidden>Feed: <b id="feed-source-symbol">—</b></small>
+          </div>
+        </div>
+        <div class="symbol-selector">
+          <label>VIEWING SYMBOL</label>
+          <select id="symbol-select"><option value="">(loading)</option></select>
+        </div>
+        <div class="quote"><small>BID</small><strong id="bid-price">—</strong></div>
+        <div class="quote"><small>ASK</small><strong id="ask-price">—</strong></div>
+        <div class="market-meta">
+          <span>Spread <b id="market-spread">—</b></span>
+          <span>Broker time <b id="broker-time">—</b></span>
+          <span>อัปเดตล่าสุด <b id="market-age">—</b></span>
+        </div>
+      </section>
+
+      <!-- ========== TERMINAL GRID: แยกกราฟจาก signal panel ========== -->
+      <section class="terminal-grid">
+        <!-- --- กราฟเรียลไทม์ --- -->
+        <article class="chart-panel">
+          <div class="panel-toolbar">
+            <div class="toolbar-title">
+              <strong id="chart-symbol">—</strong><span>·</span>
+              <span id="timeframe-label">5 นาที</span><span>·</span>
+              <span id="chart-feed-label" class="feed-tag">REALTIME</span>
+            </div>
+            <div class="toolbar-actions">
+              <div class="segmented" role="group" aria-label="Timeframe">
+                <button type="button" data-timeframe="M1">M1</button>
+                <button type="button" class="active" data-timeframe="M5">M5</button>
+              </div>
+              <button class="toolbar-toggle" type="button" id="toggle-past" aria-pressed="false" title="แสดงสัญญาณเก่าบนกราฟ">
+                <i data-lucide="history"></i> <span>Past</span>
+              </button>
+              <div class="segmented small" role="group" aria-label="Max past signals" id="max-past-group" hidden>
+                <button type="button" data-max="5" class="active">5</button>
+                <button type="button" data-max="10">10</button>
+                <button type="button" data-max="20">20</button>
+              </div>
+              <button class="icon-button small" type="button" id="reset-chart" aria-label="รีเซ็ตกราฟ" title="รีเซ็ตกราฟ"><i data-lucide="scan"></i></button>
+              <button class="icon-button small" type="button" id="expand-chart" aria-label="ขยายกราฟ" title="ขยายกราฟ"><i data-lucide="maximize-2"></i></button>
+            </div>
+          </div>
+          <div class="chart-wrap" id="chart-wrap">
+            <canvas id="price-chart" aria-label="กราฟแท่งเทียน พร้อมระดับสัญญาณ"></canvas>
+            <div class="chart-legend" id="chart-legend"><span><i class="legend-line entry"></i> Entry</span><span><i class="legend-line target"></i> TP</span><span><i class="legend-line stop"></i> SL</span><span id="legend-resistance" hidden><i class="legend-box risk"></i> Resistance</span><span id="legend-support" hidden><i class="legend-box reward"></i> Support</span></div>
+            <div class="chart-crosshair" id="chart-tooltip" hidden></div>
+          </div>
+        </article>
+
+        <!-- --- SIGNAL PANEL --- -->
+        <aside class="signal-panel" aria-labelledby="signal-title">
+          <div class="signal-head">
+            <div><span class="eyebrow">LATEST SIGNAL</span><h2 id="signal-title">สัญญาณล่าสุด</h2></div>
+            <span class="signal-kind-badge" id="signal-kind-badge">—</span>
+          </div>
+
+          <!-- ไม่มีสัญญาณ -->
+          <div class="signal-empty" id="signal-empty" hidden>
+            <i data-lucide="radio"></i>
+            <strong>ยังไม่มีสัญญาณ</strong>
+            <span>รอสัญญาณจาก EA สำหรับ <b id="empty-symbol">—</b></span>
+          </div>
+
+          <!-- เนื้อหา signal -->
+          <div class="signal-content" id="signal-content">
+            <!-- ทิศทาง + symbol -->
+            <div class="direction-row">
+              <span class="direction buy" id="signal-direction"><i data-lucide="arrow-up-right"></i> —</span>
+              <div><strong id="signal-symbol">—</strong><small id="signal-time">—</small></div>
+              <span class="active-pill" id="signal-status-pill"><span></span> <span id="signal-status">—</span></span>
+            </div>
+
+            <!-- ENTRY + ราคาปัจจุบัน -->
+            <div class="signal-summary">
+              <div><small>ENTRY</small><strong id="signal-entry">—</strong></div>
+              <div><small>ราคาปัจจุบัน</small><strong class="positive" id="current-signal-price">—</strong></div>
+            </div>
+
+            <!-- TP Levels -->
+            <div class="levels-list" id="signal-levels"></div>
+
+            <!-- ผลลัพธ์ -->
+            <div class="signal-foot">
+              <div><span>ความคืบหน้า</span><strong id="signal-progress">—</strong></div>
+              <div class="progress"><span id="signal-progress-bar" style="width:0%"></span></div>
+            </div>
+
+            <!-- result banner -->
+            <div class="signal-result-banner" id="signal-result-banner">
+              <span class="result-icon" id="result-icon">✅</span>
+              <span class="result-label" id="result-label">WIN</span>
+              <span class="result-detail" id="result-detail"></span>
+            </div>
+          </div>
+        </aside>
+      </section>
+
+      <!-- ========== STATS + HISTORY ========== -->
+      <section class="data-section">
+        <div class="stats-panel">
+          <div class="panel-heading"><div><span class="eyebrow">PERFORMANCE</span><h2>ผลลัพธ์ <span id="stats-sample">—</span> สัญญาณล่าสุด</h2></div><span class="muted">เฉพาะสัญญาณที่ปิดผลแล้ว · <span id="stats-symbol">—</span></span></div>
+          <div class="stats-grid" id="stats-grid"></div>
+        </div>
+
+        <div class="history-panel">
+          <div class="panel-heading"><div><span class="eyebrow">SIGNAL HISTORY</span><h2>ประวัติสัญญาณ</h2></div></div>
+          <div class="history-cards" id="history-cards"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer><span>Tradertoolsth · Trend_Follow_M5M1</span><span><i data-lucide="shield-check"></i> Signal only · ไม่มีการเปิดออเดอร์อัตโนมัติ</span></footer>
+  </div>
+  <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,16 @@
+# dependencies
+node_modules/
+
+# environment
+.env
+
+# sqlite database (runtime data)
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# logs
+*.log
+npm-debug.log*

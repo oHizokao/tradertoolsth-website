@@ -1,0 +1,23 @@
+# dependencies
+server/node_modules/
+node_modules/
+
+# local secrets and runtime data
+server/.env
+server/data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# logs and generated compile output
+*.log
+npm-debug.log*
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/
+
+# AI/tool workspace files
+.zcode/
