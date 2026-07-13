@@ -545,7 +545,7 @@ function drawChart(ctx, width, height) {
         const hitCount = (sig.tp_status ? [sig.tp_status.tp1, sig.tp_status.tp2, sig.tp_status.tp3, sig.tp_status.tp4].filter(s => s === 1).length : 0);
         statusTxt = sig.result === "WIN" ? `WIN TP${hitCount || 1}` : sig.result === "LOSS" ? "LOSS · SL" : "CLOSED";
       } else if (sig.kind === "OLD") {
-        statusTxt = "OLD";
+        statusTxt = "เก่า";
       }
       if (statusTxt) {
         ctx.font = "600 8px IBM Plex Mono, monospace";
@@ -864,10 +864,10 @@ function renderMarket() {
 
 function signalKindBadge(kind) {
   const map = {
-    ACTIVE: { txt: "ACTIVE", cls: "active" },
-    CLOSED: { txt: "CLOSED", cls: "closed" },
-    OLD: { txt: "OLD", cls: "old" },
-    TEST: { txt: "TEST", cls: "test" },
+    ACTIVE: { txt: "ACTIVE",   cls: "active" },
+    CLOSED: { txt: "CLOSED",   cls: "closed" },
+    OLD:    { txt: "เก่า",    cls: "old" },
+    TEST:   { txt: "TEST",     cls: "test" },
   };
   return map[kind] || { txt: kind || DASH, cls: "old" };
 }
@@ -890,13 +890,8 @@ function renderSignal() {
       s.kind !== "TEST"
     );
     const hasPast = ctxMatch.some(s => s.kind === "OLD" || s.kind === "CLOSED");
-    if (hasPast) {
-      kindBadge.textContent = "NO ACTIVE · PAST ONLY";
-      kindBadge.className = "signal-kind-badge old";
-    } else {
-      kindBadge.textContent = "NO SIGNAL";
-      kindBadge.className = "signal-kind-badge none";
-    }
+    kindBadge.textContent = "ยังไม่มีสัญญาณปัจจุบัน";
+    kindBadge.className = hasPast ? "signal-kind-badge old" : "signal-kind-badge none";
     $("empty-symbol").textContent = `${activeSymbol || DASH} ${timeframe}`;
     return;
   }
@@ -1064,6 +1059,16 @@ function renderHistory() {
     return true;
   });
 
+  // เรียง: ACTIVE บนสุด → OLD(เก่า) → CLOSED (WIN/LOSS)
+  const _kindOrder = { ACTIVE: 0, OLD: 1, CLOSED: 2, TEST: 3 };
+  rows.sort((a, b) => {
+    const ka = _kindOrder[a.kind] ?? 9;
+    const kb = _kindOrder[b.kind] ?? 9;
+    if (ka !== kb) return ka - kb;
+    // ใน kind เดียวกัน: เรียงใหม่สุดก่อน
+    return (b.updated_at || b.signal_time || 0) - (a.updated_at || a.signal_time || 0);
+  });
+
   container.innerHTML = rows.map(r => {
     const isBuy = r.direction === "BUY";
     const tpS = r.tp_status || {};
@@ -1071,13 +1076,12 @@ function renderHistory() {
       { s: tpS.tp1 }, { s: tpS.tp2 }, { s: tpS.tp3 }, { s: tpS.tp4 }
     ];
 
-    // badge: ใช้ kind เป็นหลัก — kind=OLD/CLOSED ต้องแสดงตาม kind ไม่ใช่ status ดิบ
-    // TEST ไม่ควรมาถึงตรงนี้ (filter ที่ signalMatchesContext) แต่กันไว้
+    // badge ตาม kind
     let resultTxt, resultCls;
     if (r.kind === "TEST") {
       resultTxt = "TEST"; resultCls = "test";
     } else if (r.kind === "OLD") {
-      resultTxt = "OLD"; resultCls = "old";
+      resultTxt = "เก่า"; resultCls = "old";
     } else if (r.kind === "CLOSED") {
       if (r.result === "WIN") {
         const last = tpArr.reduce((acc, t, i) => t.s === 1 ? i + 1 : acc, 0);
@@ -1087,23 +1091,19 @@ function renderHistory() {
         resultTxt = "SL HIT"; resultCls = "loss";
       }
     } else {
-      // kind === "ACTIVE" เท่านั้นที่แสดงเป็น active สด
       resultTxt = "ACTIVE"; resultCls = "open";
     }
 
-    // time ago + age class ใช้ age_seconds จาก backend (updated_at-based)
     const ago = fmtAgoShort(r.signal_time);
     const ageSec = r.age_seconds != null ? r.age_seconds : 0;
-    const isOld = ageSec > 3600; // > 1 hour
-    const isVeryOld = ageSec > 86400; // > 1 day
+    const isOld = ageSec > 3600;
+    const isVeryOld = ageSec > 86400;
 
-    // TP dots compact
     const dots = tpArr.map((t, i) => {
       const cls = t.s === 1 ? "hit" : (t.s === -1 ? "miss" : "open");
       return `<span class="hrow-dot ${cls}">T${i + 1}</span>`;
     }).join("");
 
-    // row class ตาม kind (ไม่ใช่ result)
     const rowCls = r.kind === "CLOSED" ? (r.result === "WIN" ? "win" : "loss")
                   : r.kind === "OLD" ? "old-row"
                   : r.kind === "TEST" ? "test-row"
