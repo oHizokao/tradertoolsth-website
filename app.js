@@ -200,15 +200,6 @@ function fitCanvas() {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   drawChart(ctx, rect.width, rect.height);
-
-  // แสดง/ซ่อน zone legend ตาม zones payload จริง
-  const hasZones = liveZones && liveZones.length > 0;
-  const hasResistance = hasZones && liveZones.some(z => z.type === "resistance");
-  const hasSupport    = hasZones && liveZones.some(z => z.type === "support");
-  const elR = $("legend-resistance");
-  const elS = $("legend-support");
-  if (elR) elR.hidden = !hasResistance;
-  if (elS) elS.hidden = !hasSupport;
 }
 
 function drawChart(ctx, width, height) {
@@ -386,31 +377,17 @@ function drawChart(ctx, width, height) {
     startX = timeToX(arrowTime);
     if (startX === null) continue; // ไม่มี candle time → ไม่สามารถวาดได้
 
-    // end X: ใช้ level_e.time2 หรือ rr_box.time2 (ถ้ามี), active ขยายถึงขอบขวา
+    // end X: active → ขยายถึงขอบขวา, past → ใช้ level_e.time2 ถ้ามี
+    // rr_box ถูกลบออก (scope = signal-only: arrow + Entry + SL + TP เท่านั้น)
     let endX;
     if (isActive) {
       endX = lineEndX;
-    } else if (objs.rr_box) {
-      endX = timeToX(objs.rr_box.time2) || lineEndX;
     } else if (objs.level_e) {
       endX = timeToX(objs.level_e.time2) || lineEndX;
     } else {
       endX = lineEndX;
     }
     if (startX === null || endX === null) continue;
-    const blockW = Math.max(2, endX - startX);
-
-    // RR box: reward zone เขียว (entry↔target_tp) — ตาม EA objects เท่านั้น
-    // ถ้า rr_box เป็น null (show_rr_boxes=false หรือ win_target=NONE) → ไม่วาด ตรง MT5
-    if (objs && objs.rr_box) {
-      const hiY = clampY(objs.rr_box.hi);
-      const loY = clampY(objs.rr_box.lo);
-      const yTop = Math.min(hiY, loY);
-      const yBot = Math.max(hiY, loY);
-      ctx.fillStyle = "#25d695"; ctx.globalAlpha = baseAlpha * 0.18;
-      ctx.fillRect(startX, yTop, blockW, yBot - yTop);
-      ctx.globalAlpha = 1;
-    }
 
     // Level lines: วาดเมื่อ ACTIVE หรือเป็น latest ของ context (Past OFF = latest 1 อัน ต้องเห็นระดับ)
     // Past signal อื่น ๆ (Past ON, ไม่ใช่ latest) = ใช้ block + arrow + status label พอ ไม่วาด level
@@ -606,7 +583,7 @@ function drawChart(ctx, width, height) {
 
   console.debug("[chart] render", {
     context: `${activeSymbol} ${timeframe}`,
-    chartMeta: chartMeta ? `${chartMeta.win_target} ext=${chartMeta.extend_bars} rr=${chartMeta.show_rr_boxes}` : "none",
+    chartMeta: chartMeta ? `ext=${chartMeta.extend_bars}` : "none",
     showPast: showPastSignals,
     candle_count: candles.length,
     candle_first_time: _cFirst,
@@ -631,7 +608,6 @@ function drawChart(ctx, width, height) {
         arrow_time_utc: aTime ? new Date(aTime * 1000).toISOString() : null,
         inRange: inR,
         has_objects: !!s.objects,
-        rr_box: s.objects && s.objects.rr_box ? "yes" : "no",
       };
     }),
   });
