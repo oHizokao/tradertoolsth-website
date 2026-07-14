@@ -163,6 +163,16 @@ server/
 └── package.json
 ```
 
+## Best-TP lifecycle
+
+- TP1-TP3 keep the signal open; TP4 closes it as a win.
+- SL before any TP closes as `SL HIT / LOSS`.
+- SL after a TP closes at the highest achieved target, such as `TP3 THEN SL / WIN`.
+- Target states are cumulative: a TP3 close records TP1-TP3 as hit and TP4 as missed.
+- Same-candle TP/SL ambiguity is resolved conservatively with SL first.
+- A replacement is stored as `REPLACED` and is excluded from Latest and resolved statistics.
+- Run lifecycle checks with `npm test`.
+
 ## Schema (SQLite)
 
 - **signals** — สัญญาณหนึ่งแถวต่อ `id` (UPSERT ตาม id) เก็บ entry/sl/tp1-4/status/result/tpX_status

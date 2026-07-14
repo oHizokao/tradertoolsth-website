@@ -202,6 +202,10 @@ const stmts = {
 
   getSignalById: db.prepare(`SELECT * FROM signals WHERE id = ?`),
 
+  markSignalReplaced: db.prepare(`
+    UPDATE signals SET status = 'REPLACED', result = 'OPEN', updated_at = ? WHERE id = ?
+  `),
+
   // latest — global (fallback)
   getLatestSignal: db.prepare(`SELECT * FROM signals ORDER BY signal_time DESC LIMIT 1`),
   // latest by symbol
@@ -215,6 +219,8 @@ const stmts = {
   getLatestActiveSignal: db.prepare(`
     SELECT * FROM signals
     WHERE result = 'OPEN'
+      AND status <> 'REPLACED'
+      AND tp1_status >= 0 AND tp2_status >= 0 AND tp3_status >= 0 AND tp4_status >= 0
       AND updated_at >= ?
       AND (source IS NULL OR LOWER(source) NOT LIKE '%test%' AND LOWER(source) NOT LIKE '%seed%')
     ORDER BY updated_at DESC LIMIT 1
@@ -222,6 +228,8 @@ const stmts = {
   getLatestActiveSignalBySymbol: db.prepare(`
     SELECT * FROM signals
     WHERE symbol = ? AND result = 'OPEN'
+      AND status <> 'REPLACED'
+      AND tp1_status >= 0 AND tp2_status >= 0 AND tp3_status >= 0 AND tp4_status >= 0
       AND updated_at >= ?
       AND (source IS NULL OR LOWER(source) NOT LIKE '%test%' AND LOWER(source) NOT LIKE '%seed%')
     ORDER BY updated_at DESC LIMIT 1
@@ -229,6 +237,8 @@ const stmts = {
   getLatestActiveSignalBySymbolTf: db.prepare(`
     SELECT * FROM signals
     WHERE symbol = ? AND timeframe = ? AND result = 'OPEN'
+      AND status <> 'REPLACED'
+      AND tp1_status >= 0 AND tp2_status >= 0 AND tp3_status >= 0 AND tp4_status >= 0
       AND updated_at >= ?
       AND (source IS NULL OR LOWER(source) NOT LIKE '%test%' AND LOWER(source) NOT LIKE '%seed%')
     ORDER BY updated_at DESC LIMIT 1
@@ -240,9 +250,21 @@ const stmts = {
   getHistoryBySymbolTf: db.prepare(`SELECT * FROM signals WHERE symbol = ? AND timeframe = ? ORDER BY signal_time DESC LIMIT ?`),
 
   // resolved stats
-  getRecentResolved: db.prepare(`SELECT * FROM signals WHERE result IN ('WIN','LOSS') ORDER BY signal_time DESC LIMIT ?`),
-  getRecentResolvedBySymbol: db.prepare(`SELECT * FROM signals WHERE result IN ('WIN','LOSS') AND symbol = ? ORDER BY signal_time DESC LIMIT ?`),
-  getRecentResolvedBySymbolTf: db.prepare(`SELECT * FROM signals WHERE result IN ('WIN','LOSS') AND symbol = ? AND timeframe = ? ORDER BY signal_time DESC LIMIT ?`),
+  getRecentResolved: db.prepare(`
+    SELECT * FROM signals WHERE result IN ('WIN','LOSS')
+      AND (source IS NULL OR LOWER(source) NOT LIKE '%test%' AND LOWER(source) NOT LIKE '%seed%')
+    ORDER BY signal_time DESC LIMIT ?
+  `),
+  getRecentResolvedBySymbol: db.prepare(`
+    SELECT * FROM signals WHERE result IN ('WIN','LOSS') AND symbol = ?
+      AND (source IS NULL OR LOWER(source) NOT LIKE '%test%' AND LOWER(source) NOT LIKE '%seed%')
+    ORDER BY signal_time DESC LIMIT ?
+  `),
+  getRecentResolvedBySymbolTf: db.prepare(`
+    SELECT * FROM signals WHERE result IN ('WIN','LOSS') AND symbol = ? AND timeframe = ?
+      AND (source IS NULL OR LOWER(source) NOT LIKE '%test%' AND LOWER(source) NOT LIKE '%seed%')
+    ORDER BY signal_time DESC LIMIT ?
+  `),
 
   // market
   getMarket: db.prepare(`SELECT * FROM market_snapshots ORDER BY updated_at DESC LIMIT 1`),

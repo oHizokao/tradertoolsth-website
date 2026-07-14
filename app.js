@@ -193,34 +193,26 @@ function signalTpStates(s) {
   return [tp.tp1 || 0, tp.tp2 || 0, tp.tp3 || 0, tp.tp4 || 0];
 }
 
-// UI lifecycle: track through TP1-TP3. Only TP4 or an explicit SL result is terminal.
-// A negative TP state can mean that target was not reached before replacement;
-// it must not be treated as proof that price hit SL.
+// Terminal state is authoritative from the server. Negative TP states mean the
+// remaining targets were stopped after the highest achieved TP.
 function isTrackingTerminal(s) {
   const states = signalTpStates(s);
   const status = String((s && s.status) || "").toUpperCase();
-  return !!s && (s.result === "LOSS" || status.includes("SL HIT") || states[3] === 1);
-}
-
-function newestContextSignal() {
-  const rows = ((feed.history && feed.history.signals) || [])
-    .filter(signalMatchesContext)
-    .sort((a, b) => (b.signal_time || 0) - (a.signal_time || 0));
-  return rows[0] || null;
+  return !!s && (
+    s.kind === "CLOSED" || s.kind === "OLD" || s.result === "WIN" || s.result === "LOSS" ||
+    status.includes("SL HIT") || status.includes("THEN SL") || states.some((state) => state === -1) || states[3] === 1
+  );
 }
 
 // สัญญาณล่าสุดที่จะแสดงใน panel = latest ACTIVE ของ context
 // ถ้า latest ของ context เป็น OLD/CLOSED → คืน null (panel แสดง "No active signal")
 function currentDisplaySignal() {
   const apiActive = feed.latest && feed.latest.signal;
-  const historyNewest = newestContextSignal();
-  const activeMatch = signalMatchesContext(apiActive) ? apiActive : null;
-  const s = activeMatch && (!historyNewest || (activeMatch.signal_time || 0) >= (historyNewest.signal_time || 0))
-    ? activeMatch
-    : historyNewest;
-  if (!s || s.kind === "OLD" || isTrackingTerminal(s)) return null;
-  // Backend may call TP1-TP3 WIN/CLOSED; UI keeps tracking until TP4/SL/new signal.
-  return { ...s, kind: "ACTIVE", result: "OPEN" };
+  const s = signalMatchesContext(apiActive) ? apiActive : null;
+  if (!s || s.kind !== "ACTIVE" || isTrackingTerminal(s)) return null;
+  const visual = computeVisualHit(s, getActiveCandles());
+  if (visual.sl === 1 || visual.tp4 === 1) return null;
+  return s;
 }
 
 // รายการ signal ที่จะวาดบนกราฟ (overlay) — current overlay จาก /api/latest เท่านั้น
@@ -1200,8 +1192,8 @@ function renderHistory() {
     } else if (states[3] === 1) {
       resultTxt = "TP4 ✓"; resultCls = "win";
     } else {
-      resultTxt = lastHit > 0 ? `SL HIT · TP${lastHit}` : "SL HIT";
-      resultCls = "loss";
+      resultTxt = lastHit > 0 ? `TP${lastHit} ✓ · จบแล้ว` : "SL HIT";
+      resultCls = lastHit > 0 ? "win" : "loss";
     }
 
     const ago = fmtAgoShort(r.signal_time);

@@ -479,6 +479,19 @@ npm run seed:test           # terminal 2 (ส่ง payload ครบ)
 - Verification ต่อเนื่อง 5 รอบทุก 3 วินาที: feed คง LIVE, market age ประมาณ 1 วินาที และ bid เปลี่ยนตามตลาด
 - Browser QC: `EA FEED LIVE`, `1 นาที`, data age 2-3 วินาที, bid เปลี่ยนจาก `4,058.87` เป็น `4,058.09`, canvas ปกติ และ console ไม่มี warning/error
 
+## Persist best TP when price later hits SL (2026-07-14)
+
+- Server now owns the website signal lifecycle; the EA signal rules and MT5 drawing logic are unchanged.
+- TP1-TP3 are intermediate progress. TP4 closes immediately as `TP4 HIT / WIN`.
+- If SL is reached after one or more targets, the signal closes at the highest achieved target, for example `TP3 THEN SL / WIN` with TP1-TP3=`1` and TP4=`-1`.
+- If SL is reached before every target, the signal closes as `SL HIT / LOSS`.
+- When OHLC touches SL and a new TP in the same candle, SL has priority because candle data cannot prove intrabar order. Targets achieved on earlier candles remain locked.
+- `POST /api/status` normalizes EA target states, while `POST /api/market` independently reconciles the newest signal from broker candles and persists the result.
+- A new signal marks the previous non-terminal signal as `REPLACED`; replaced signals are excluded from Latest and resolved performance statistics.
+- Later EA status/bulk replays cannot revive a `REPLACED` signal, and test/seed sources are excluded from performance statistics.
+- Frontend Latest uses `/api/latest` only and no longer revives a CLOSED/OLD history row as ACTIVE. Past OFF therefore clears the overlay as soon as the signal is terminal.
+- QC: 8 lifecycle unit tests passed. Isolated API integration passed for TP3-then-SL, intermediate TP2 remaining OPEN, replacement, Latest clearing, and cumulative target statistics.
+
 ## Simplify replaced signal history to achieved TP (2026-07-13)
 
 - ผู้ใช้ขอไม่แสดงคำว่า `REPLACED` ในประวัติสัญญาณ

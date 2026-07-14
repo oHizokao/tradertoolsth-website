@@ -8,6 +8,7 @@ const express = require("express");
 const { stmts, tx } = require("../db");
 const { requireApiKey } = require("../auth");
 const { validateSignal, validateStatus, validateMarket, validateChartMeta, validateZones } = require("../validate");
+const { evaluateCandles, hasLifecycleChange, lifecycleFromStates, statusPatch } = require("../signal-lifecycle");
 const logger = require("../logger");
 
 const router = express.Router();
@@ -19,6 +20,7 @@ router.post("/signal", requireApiKey, (req, res, next) => {
     if (!v.ok) return res.status(400).json({ error: "validation failed", details: v.errors });
 
     const existed = stmts.getSignalById.get(v.value.id);
+    const previous = stmts.getLatestSignalBySymbolTf.get(v.value.symbol, v.value.timeframe);
     // ถ้ามีอยู่แล้ว ให้เก็บ created_at เดิม ไม่เขียนทับ status/result (ส่ง /api/status แยก)
     if (existed) {
       v.value.created_at = existed.created_at;
@@ -31,6 +33,12 @@ router.post("/signal", requireApiKey, (req, res, next) => {
     }
 
     tx(() => {
+      if (!existed && previous && previous.id !== v.value.id) {
+        const previousState = lifecycleFromStates(previous);
+        if (!previousState.terminal && String(previous.status || "").toUpperCase() !== "REPLACED") {
+          stmts.markSignalReplaced.run(v.value.updated_at, previous.id);
+        }
+      }
       stmts.upsertSignal.run(v.value);
       stmts.insertEvent.run("signal", JSON.stringify(v.value), v.value.updated_at);
     })();
@@ -52,14 +60,20 @@ router.post("/status", requireApiKey, (req, res, next) => {
     if (!existed) {
       return res.status(404).json({ error: `signal id not found: ${v.value.id}` });
     }
+    if (String(existed.status || "").toUpperCase() === "REPLACED") {
+      return res.json({ ok: true, id: existed.id, status: "REPLACED", ignored: "signal already replaced" });
+    }
+
+    const next = statusPatch(existed, v.value);
+    const update = { ...next, id: existed.id, updated_at: v.value.updated_at };
 
     tx(() => {
-      stmts.updateStatus.run(v.value);
-      stmts.insertEvent.run("status", JSON.stringify(v.value), v.value.updated_at);
+      stmts.updateStatus.run(update);
+      stmts.insertEvent.run("status", JSON.stringify(update), update.updated_at);
     })();
 
-    logger.info("ingest", `status ${v.value.id} -> ${v.value.status || "(unchanged)"}`);
-    res.json({ ok: true, id: v.value.id });
+    logger.info("ingest", `status ${update.id} -> ${update.status}`);
+    res.json({ ok: true, id: update.id, status: update.status, result: update.result, best_tp: next.bestTp });
   } catch (e) {
     next(e);
   }
@@ -71,12 +85,26 @@ router.post("/market", requireApiKey, (req, res, next) => {
     const v = validateMarket(req.body || {});
     if (!v.ok) return res.status(400).json({ error: "validation failed", details: v.errors });
 
+    let lifecycle = null;
     tx(() => {
       stmts.upsertMarket.run(v.value);
       stmts.insertEvent.run("market", JSON.stringify(v.value), v.value.updated_at);
+
+      const signal = stmts.getLatestSignalBySymbolTf.get(v.value.symbol, v.value.timeframe);
+      if (signal && String(signal.status || "").toUpperCase() !== "REPLACED") {
+        let candles = [];
+        try { candles = v.value.candles ? JSON.parse(v.value.candles) : []; } catch (_) {}
+        const nextState = evaluateCandles(signal, candles);
+        if (hasLifecycleChange(signal, nextState)) {
+          const update = { ...nextState, id: signal.id, updated_at: v.value.updated_at };
+          stmts.updateStatus.run(update);
+          stmts.insertEvent.run("lifecycle", JSON.stringify(update), update.updated_at);
+          lifecycle = { id: signal.id, status: nextState.status, result: nextState.result, best_tp: nextState.bestTp };
+        }
+      }
     })();
 
-    res.json({ ok: true, symbol: v.value.symbol });
+    res.json({ ok: true, symbol: v.value.symbol, lifecycle });
   } catch (e) {
     next(e);
   }
@@ -149,13 +177,24 @@ router.post("/signal/bulk", requireApiKey, (req, res, next) => {
             }
           }
 
-          // bulk sync ส่ง status/result มาด้วย → เขียนทับได้เลย
-          if (raw.status)     v.value.status     = raw.status;
-          if (raw.result)     v.value.result     = raw.result;
-          if (raw.tp1_status !== undefined) v.value.tp1_status = raw.tp1_status;
-          if (raw.tp2_status !== undefined) v.value.tp2_status = raw.tp2_status;
-          if (raw.tp3_status !== undefined) v.value.tp3_status = raw.tp3_status;
-          if (raw.tp4_status !== undefined) v.value.tp4_status = raw.tp4_status;
+          // A replaced signal is terminal for this website lifecycle. Do not let
+          // a later EA replay revive it as ACTIVE.
+          if (existed && String(existed.status || "").toUpperCase() === "REPLACED") {
+            v.value.status = "REPLACED";
+            v.value.result = "OPEN";
+            v.value.tp1_status = existed.tp1_status;
+            v.value.tp2_status = existed.tp2_status;
+            v.value.tp3_status = existed.tp3_status;
+            v.value.tp4_status = existed.tp4_status;
+          } else {
+            // bulk sync sends status/result and may restore authoritative EA history.
+            if (raw.status)     v.value.status     = raw.status;
+            if (raw.result)     v.value.result     = raw.result;
+            if (raw.tp1_status !== undefined) v.value.tp1_status = raw.tp1_status;
+            if (raw.tp2_status !== undefined) v.value.tp2_status = raw.tp2_status;
+            if (raw.tp3_status !== undefined) v.value.tp3_status = raw.tp3_status;
+            if (raw.tp4_status !== undefined) v.value.tp4_status = raw.tp4_status;
+          }
 
           stmts.upsertSignal.run(v.value);
           if (existed) updated++; else created++;

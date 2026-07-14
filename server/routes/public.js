@@ -43,6 +43,7 @@ function signalKind(row) {
   if (!row) return null;
   const src = (row.source || "").toLowerCase();
   if (TEST_SOURCES.some(t => src.includes(t))) return "TEST";
+  if (String(row.status || "").toUpperCase() === "REPLACED") return "OLD";
   if (row.result === "WIN" || row.result === "LOSS") return "CLOSED";
   // ใช้ updated_at เป็น refTime เสมอ — เป็นเวลา server ที่ EA ส่งเข้ามาล่าสุด (reliable)
   // signal_time เป็น broker time ที่อาจเพี้ยน/อนาคต จึงไม่ใช้เป็นตัวตัดสิน age
