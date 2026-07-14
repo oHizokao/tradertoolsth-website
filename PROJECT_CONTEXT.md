@@ -490,6 +490,7 @@ npm run seed:test           # terminal 2 (ส่ง payload ครบ)
 - A new signal marks the previous non-terminal signal as `REPLACED`; replaced signals are excluded from Latest and resolved performance statistics.
 - Later EA status/bulk replays cannot revive a `REPLACED` signal, and test/seed sources are excluded from performance statistics.
 - Frontend Latest uses `/api/latest` only and no longer revives a CLOSED/OLD history row as ACTIVE. Past OFF therefore clears the overlay as soon as the signal is terminal.
+- History keeps terminal details in the backend but presents achieved results simply as `TP1 ✓` through `TP4 ✓`; it does not append redundant closed wording.
 - QC: 8 lifecycle unit tests passed. Isolated API integration passed for TP3-then-SL, intermediate TP2 remaining OPEN, replacement, Latest clearing, and cumulative target statistics.
 
 ## Simplify replaced signal history to achieved TP (2026-07-13)

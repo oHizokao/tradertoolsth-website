@@ -1192,7 +1192,7 @@ function renderHistory() {
     } else if (states[3] === 1) {
       resultTxt = "TP4 ✓"; resultCls = "win";
     } else {
-      resultTxt = lastHit > 0 ? `TP${lastHit} ✓ · จบแล้ว` : "SL HIT";
+      resultTxt = lastHit > 0 ? `TP${lastHit} ✓` : "SL HIT";
       resultCls = lastHit > 0 ? "win" : "loss";
     }
 
